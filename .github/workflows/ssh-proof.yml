@@ -1,0 +1,29 @@
+name: Isolated SSH publishing proof
+on:
+  push:
+    branches: [proof/isolated-ssh]
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+jobs:
+  ssh-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Generate the authorized ephemeral repository-only test key
+        run: python proof/ssh_probe.py prepare
+      - name: Publish only the public key for controller registration
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ssh-proof-public-key
+          path: .proof-runtime/id.pub
+          retention-days: 1
+          if-no-files-found: error
+      - name: Probe with SSH-only child processes and no owner credentials
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python proof/ssh_probe.py run
