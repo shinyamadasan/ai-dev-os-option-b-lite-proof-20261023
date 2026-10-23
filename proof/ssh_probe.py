@@ -118,7 +118,28 @@ try:
         raise SystemExit(2)
     require_success(git(["fetch", "origin", "refs/pull/" + str(pr["number"]) + "/merge"], subject))
     merge = require_success(git(["rev-parse", "FETCH_HEAD"], subject))
-    emit("green_pr_precondition", "PASS", pr=pr["number"], head=head, test_merge=merge)
+    parents = require_success(git(["show", "-s", "--format=%P", merge], subject)).split()
+    if parents != [base, head]:
+        emit("green_pr_precondition", "UNVERIFIED", reason="Merge/base/head identity moved")
+        raise SystemExit(2)
+    # Head checks are insufficient: protected-ref updates evaluate the actual pushed SHA.
+    # Publish the merge object to an ordinary synthetic branch and test that exact object.
+    merge_branch = "proof/ssh-merge-candidate-" + RUN
+    require_success(git(["push", "origin", merge + ":refs/heads/" + merge_branch], subject))
+    for _ in range(45):
+        checks = api("/commits/" + merge + "/check-runs")["check_runs"]
+        required = [c for c in checks if c["name"] in ("proof", "readonly-token-negative")]
+        if {c["name"] for c in required} == {"proof", "readonly-token-negative"} and all(c["status"] == "completed" and c["conclusion"] == "success" for c in required):
+            break
+        time.sleep(10)
+    else:
+        emit("green_pr_precondition", "UNVERIFIED", reason="Exact pushed merge SHA lacks successful required checks")
+        raise SystemExit(2)
+    if api("/git/ref/heads/main")["object"]["sha"] != base:
+        emit("green_pr_precondition", "UNVERIFIED", reason="Main identity moved")
+        raise SystemExit(2)
+    emit("green_pr_precondition", "PASS", pr=pr["number"], head=head, test_merge=merge,
+         exact_merge_checks=[{"name": c["name"], "id": c["id"], "conclusion": c["conclusion"]} for c in required])
     denied_push("ssh_local_green_pr_merge",
         git(["push", "origin", merge + ":refs/heads/main"], subject))
 except (urllib.error.URLError, TimeoutError, subprocess.TimeoutExpired):
