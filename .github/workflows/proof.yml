@@ -1,0 +1,25 @@
+name: Disposable security proof
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check synthetic fixture
+        run: python -c "from pathlib import Path; assert Path('fixture.txt').read_text().strip() == 'PASS'"
+  readonly-token-negative:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require actual GitHub denial of repository write
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python proof/ci_probe.py
